@@ -1,63 +1,19 @@
-// src/services/geminiService.js
-
-// --- PART 1: GEMINI FOR LIVE CONVERSATION ---
-
-const GEMINI_API_KEY = "AIzaSyDGSTzn0GJq3jCif6wfRBg5O4bwsBaGjwY"; // Using your provided API key
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`; // Using gemini-2.0-flash model
-
-const callGeminiAPI = async (payload) => {
-    try {
-        const response = await fetch(GEMINI_API_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
-        if (!response.ok) {
-            const errorBody = await response.json();
-            console.error("Gemini API Error Response:", errorBody);
-            throw new Error(`API request failed with status ${response.status}`);
-        }
-        const result = await response.json();
-        if (!result.candidates || !result.candidates[0].content || !result.candidates[0].content.parts) {
-            return null;
-        }
-        return result.candidates[0].content.parts[0].text;
-    } catch (error) {
-        console.error("Failed to call Gemini API:", error);
-        return null;
-    }
-};
-
-export const getDynamicAIResponse = async (personaPrompt, chatHistory, userText) => {
-    const prompt = `${personaPrompt} A nurse is talking to you. This is the conversation so far:\n${chatHistory.map(line => `${line.speaker}: ${line.text}`).join('\n')}\nThe nurse just said: "${userText}"\nYour response must be in character. Do NOT say the nurse's lines. Keep your response short, natural, and to the point.`;
-    const payload = { contents: [{ role: "user", parts: [{ text: prompt }] }] };
-    
-    let aiText = await callGeminiAPI(payload);
-    
-    if (!aiText || aiText.toLowerCase().includes("i'm not sure what to say")) {
-        const simplerPrompt = `${personaPrompt} The nurse said: "${userText}". How would you reply in character?`;
-        const simplerPayload = { contents: [{ role: "user", parts: [{ text: simplerPrompt }] }] };
-        aiText = await callGeminiAPI(simplerPayload);
-    }
-
-    return aiText || "Could you please rephrase that?";
-};
-
-
-// --- PART 2: DEEPSEEK FOR FEEDBACK GENERATION ---
+// src/services/aiService.js
 
 const DEEPSEEK_API_KEY = "sk-09f6406f3b1840458e6e2ff3d025c81a"; // Your DeepSeek API key
 const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
+const DEEPSEEK_MODEL = "deepseek-coder"; // Using the most intelligent model for all tasks
 
-const callDeepSeekAPI = async (prompt) => {
+// A generic function to call the DeepSeek API
+const callDeepSeekAPI = async (messages, useJsonFormat = false) => {
     const payload = {
-        model: "deepseek-coder", // Using the more intelligent model
-        messages: [
-            { "role": "system", "content": "You are an expert clinical communication coach for nurses. Your task is to analyze a conversation transcript and provide structured feedback as a JSON object. You must respond with only the JSON object and nothing else." },
-            { "role": "user", "content": prompt }
-        ],
-        response_format: { type: "json_object" }
+        model: DEEPSEEK_MODEL,
+        messages: messages,
     };
+
+    if (useJsonFormat) {
+        payload.response_format = { type: "json_object" };
+    }
 
     try {
         const response = await fetch(DEEPSEEK_API_URL, {
@@ -82,6 +38,23 @@ const callDeepSeekAPI = async (prompt) => {
     }
 };
 
+// Function for getting a chat response during the simulation
+export const getDynamicAIResponse = async (personaPrompt, chatHistory, userText) => {
+    const messages = [
+        { "role": "system", "content": `You are an AI role-playing as a character. ${personaPrompt}. Your responses must be short, natural, and stay in character. Do not say the nurse's lines.` },
+        ...chatHistory.map(line => ({
+            role: line.speaker === 'user' ? 'user' : 'assistant',
+            content: line.text
+        })),
+        { "role": "user", "content": userText }
+    ];
+    
+    const aiText = await callDeepSeekAPI(messages);
+    return aiText || "I'm sorry, could you rephrase that?";
+};
+
+
+// Function for generating the structured feedback JSON
 export const generateFeedback = async (personaPrompt, conversation) => {
     const transcript = conversation.map(line => `${line.speaker === 'user' ? 'Nurse' : 'Patient'}: ${line.text}`).join('\n');
     
@@ -113,20 +86,19 @@ export const generateFeedback = async (personaPrompt, conversation) => {
         }
     `;
 
-    const feedbackText = await callDeepSeekAPI(prompt);
+    const messages = [
+        { "role": "system", "content": "You are an expert clinical communication coach for nurses. Your task is to analyze a conversation transcript and provide structured feedback as a JSON object. You must respond with only the JSON object and nothing else." },
+        { "role": "user", "content": prompt }
+    ];
+
+    const feedbackText = await callDeepSeekAPI(messages, true);
 
     if (!feedbackText) {
-        return {
-            cultural: { score: 0, notes: "Error generating feedback.", goodExample: "N/A", improvementExample: "N/A" },
-            pronunciation: { score: 0, words: [] },
-            grammar: { score: 0, fluency: "N/A", fillerWords: 0, notes: "Error generating feedback." },
-            lineByLineFeedback: []
-        };
+        return null;
     }
 
     try {
         const feedback = JSON.parse(feedbackText);
-        // Safeguard against missing or empty arrays which can cause rendering issues
         if (!feedback.pronunciation || !feedback.pronunciation.words) {
             feedback.pronunciation = { score: feedback.pronunciation?.score || 0, words: [] };
         }
