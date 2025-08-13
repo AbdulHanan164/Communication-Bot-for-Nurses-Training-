@@ -1,7 +1,7 @@
 // src/components/SimulationView.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { aiPersonas } from '../data/scenarios';
-import { getDynamicAIResponse } from '../services/aiService'; // Updated import
+import { getDynamicAIResponse } from '../services/aiService.js'; // Corrected import path
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
