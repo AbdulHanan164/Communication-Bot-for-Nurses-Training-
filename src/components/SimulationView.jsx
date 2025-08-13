@@ -1,14 +1,13 @@
 // src/components/SimulationView.jsx
 import React, { useState, useEffect, useRef } from 'react';
 import { aiPersonas } from '../data/scenarios';
-import { getDynamicAIResponse } from '../services/geminiService';
+import { getDynamicAIResponse } from '../services/aiService'; // Updated import
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 const recognition = SpeechRecognition ? new SpeechRecognition() : null;
 if (recognition) {
-  // --- CHANGE 1: Enable continuous listening ---
   recognition.continuous = true;
-  recognition.interimResults = true; // Show results as they are being spoken
+  recognition.interimResults = true;
   recognition.lang = 'en-GB';
 }
 
@@ -69,7 +68,7 @@ const SimulationView = ({ scenario, onBack, onFinish }) => {
         let interim = '';
         let final = '';
 
-        for (let i = 0; i < event.results.length; ++i) {
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
                 final += event.results[i][0].transcript;
             } else {
@@ -77,7 +76,9 @@ const SimulationView = ({ scenario, onBack, onFinish }) => {
             }
         }
         setInterimTranscript(interim);
-        finalTranscriptRef.current = final;
+        if (final) {
+            finalTranscriptRef.current += final + ' ';
+        }
     };
 
     return () => { if(recognition) recognition.onresult = null; }
@@ -85,7 +86,6 @@ const SimulationView = ({ scenario, onBack, onFinish }) => {
 
   const toggleListening = () => {
     if (isListening) {
-        // --- CHANGE 2: Stop listening and process the final transcript ---
         recognition.stop();
         setIsListening(false);
         setInterimTranscript('');
@@ -103,6 +103,7 @@ const SimulationView = ({ scenario, onBack, onFinish }) => {
             alert("Speech recognition is not supported.");
             return;
         }
+        finalTranscriptRef.current = ''; // Clear previous transcript
         recognition.start();
         setIsListening(true);
     }
@@ -113,11 +114,10 @@ const SimulationView = ({ scenario, onBack, onFinish }) => {
       <div className="p-4 border-b flex justify-between items-center"><button onClick={onBack} className="bg-gray-200 text-gray-800 py-2 px-4 rounded-lg hover:bg-gray-300"> &larr; Back </button><div className="text-center"><h2 className="text-xl font-semibold">{scenario.patient}</h2><p className="text-sm text-gray-500">{scenario.title}</p></div><button onClick={() => onFinish(conversation)} className="bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700"> Finish </button></div>
       <div className="flex-grow p-4 overflow-y-auto bg-gray-50">{conversation.map((entry, index) => (<div key={index} className={`flex ${entry.speaker === 'user' ? 'justify-end' : 'justify-start'} mb-4`}><div className={`rounded-lg px-4 py-2 max-w-xs lg:max-w-md ${entry.speaker === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-300 text-black'}`}>{entry.text}</div></div>))}{isAiThinking && (<div className="flex justify-start mb-4"><div className="rounded-lg px-4 py-2 bg-gray-300 text-black"><span className="italic">{persona.name} is thinking...</span></div></div>)}<div ref={chatEndRef} /></div>
       
-      {/* --- CHANGE 3: UI for interim transcript --- */}
       {isListening && (
           <div className="p-4 border-t text-center bg-yellow-100">
               <p className="text-gray-600 italic">Listening... (Click mic to stop)</p>
-              <p className="text-gray-800 font-medium mt-1">{interimTranscript}</p>
+              <p className="text-gray-800 font-medium mt-1">{finalTranscriptRef.current}<span className="text-gray-500">{interimTranscript}</span></p>
           </div>
       )}
 
